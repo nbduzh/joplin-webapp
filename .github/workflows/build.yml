@@ -1,0 +1,69 @@
+name: Build Joplin Web App
+
+on:
+  workflow_dispatch:
+    inputs:
+      joplin_version:
+        description: Joplin version or tag
+        required: true
+        default: v3.7.18
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout image repository
+        uses: actions/checkout@v4
+
+      - name: Checkout official Joplin source
+        uses: actions/checkout@v4
+        with:
+          repository: laurent22/joplin
+          ref: ${{ inputs.joplin_version }}
+          path: joplin-src
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Joplin dependencies
+        working-directory: joplin-src
+        run: yarn install
+
+      - name: Build Joplin Web App
+        working-directory: joplin-src/packages/app-mobile
+        run: yarn web
+
+      - name: Prepare Docker files
+        run: |
+          mkdir -p pages
+          cp -a joplin-src/packages/app-mobile/web/dist/. pages/
+
+      - name: Set image name
+        shell: bash
+        run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ inputs.joplin_version }}
+            ${{ env.IMAGE_NAME }}:latest
